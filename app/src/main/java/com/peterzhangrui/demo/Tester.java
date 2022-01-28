@@ -1,9 +1,9 @@
-package com.peterzhangrui.demo.coder;
+package com.peterzhangrui.demo;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -12,55 +12,72 @@ import android.util.ArrayMap;
 import android.util.Log;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Enumeration;
 
-import dalvik.system.BaseDexClassLoader;
-import dalvik.system.DexClassLoader;
 import dalvik.system.DexFile;
-import dalvik.system.PathClassLoader;
 
-public abstract class MyTester<T> {
+/**
+ * class for api test
+ */
+public abstract class Tester {
 
-    private static CodeNode rootNode;
     private static CodeNode currentNode;
-    private static Context mApplicationContext;
+    private static WeakReference<Activity> mActivity;
+    private static CodeNodeLoader mCodeLoader;
 
-    public abstract T test(Context appContext);
-
-    public static void show(Context context) {
-        mApplicationContext = context;
-        initData(context);
-        initView(context);
+    public static void show(Activity activity) {
+        mActivity = new WeakReference<>(activity);
+        initData(activity);
+        showView(activity);
     }
 
-    private static void initData(Context context) {
-        if (rootNode == null) {
-            String pkgName = context.getPackageName();
-            currentNode = rootNode = new CodeNode(pkgName, CodeNode.DIR);
-            new CodeNodeLoader().load(rootNode, context.getApplicationContext());
-        }
+    private static void initData(Activity activity) {
+        String pkgName = activity.getPackageName();
+        CodeNode rootNode = new CodeNode(pkgName, CodeNode.DIR);
+        currentNode = rootNode;
+        mCodeLoader = new CodeNodeLoader();
+        mCodeLoader.load(rootNode, activity.getApplicationContext());
     }
 
-    private static void initView(Context context) {
+    private static void showView(Activity activity) {
         switch (currentNode.type) {
             case CodeNode.DIR:
-                installListView(context);
+                installListView(activity);
                 break;
             case CodeNode.CLASS:
                 try {
-                    invokeMethod(context);
+                    Class<?> cls = Class.forName(currentNode.className);
+                    for (Method m : cls.getDeclaredMethods()) {
+                        if (m.isAnnotationPresent(Test.class) && Modifier.PUBLIC == m
+                                .getModifiers()) {
+                            String methodName = m.getName();
+                            mCodeLoader.createAndAddSubNode(currentNode.className, methodName,
+                                    CodeNode.METHOD, currentNode);
+                        }
+                    }
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+                installListView(activity);
+                break;
+            case CodeNode.METHOD:
+                try {
+                    invokeMethod(activity);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
         }
     }
 
-    private static void installListView(Context context) {
+    private static void installListView(Activity activity) {
         if (currentNode.mSubNodeList != null) {
             ArrayMap<CharSequence, CodeNode> map = new ArrayMap<>();
             for (CodeNode codeNode : currentNode.mSubNodeList) {
@@ -72,11 +89,11 @@ public abstract class MyTester<T> {
             }
             CharSequence[] items = new String[map.size()];
             map.keySet().toArray(items);
-            new AlertDialog.Builder(context).setTitle(currentNode.name).setSingleChoiceItems(items, 0, new DialogInterface.OnClickListener() {
+            new AlertDialog.Builder(activity).setTitle(currentNode.name).setSingleChoiceItems(items, 0, new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     currentNode = map.get(items[which]);
-                    show(context);
+                    showView(activity);
                 }
             }).setCancelable(false).setNegativeButton("back", new DialogInterface.OnClickListener() {
                 @Override
@@ -89,97 +106,56 @@ public abstract class MyTester<T> {
     }
 
     private static void showLogDialog(String tag, String msg) {
-        if (mApplicationContext != null) {
-            new AlertDialog.Builder(mApplicationContext).setTitle("LogTag:" + tag).setMessage(msg).show();
+        if (mActivity != null && mActivity.get() != null) {
+            new AlertDialog.Builder(mActivity.get()).setTitle("LogTag:" + tag).setMessage(msg).show();
         }
     }
 
-    protected void logD(String tag, String msg) {
+    public static void logD(String tag, String msg) {
         Log.d(tag, msg);
         showLogDialog(tag, msg);
     }
 
-    protected void logW(String tag, String msg) {
+    public static void logW(String tag, String msg) {
         Log.w(tag, msg);
         showLogDialog(tag, msg);
     }
 
-    protected void logI(String tag, String msg) {
+    public static void logI(String tag, String msg) {
         Log.i(tag, msg);
         showLogDialog(tag, msg);
     }
 
-    protected void logE(String tag, String msg) {
+    public void logE(String tag, String msg) {
         Log.e(tag, msg);
         showLogDialog(tag, msg);
     }
 
 
-    private static void invokeMethod(Context context) throws Exception {
-        Object obj = context.getClassLoader().loadClass(currentNode.className).newInstance();
+    private static void invokeMethod(Activity activity) throws Exception {
+        Object obj = activity.getClassLoader().loadClass(currentNode.className).newInstance();
         if (currentNode != null && currentNode.name != null) {
-            Method method = obj.getClass().getDeclaredMethod(Tester.METHOD_NAME, Context.class);
+            Method method = obj.getClass().getDeclaredMethod(currentNode.name, Activity.class);
             method.setAccessible(true);
-            method.invoke(obj, mApplicationContext);
+            method.invoke(obj, activity);
         }
     }
 
     // ====================================== tester ============================================
-    public static interface Tester{
-        public void test();
-        public static final String METHOD_NAME = "test";
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({ElementType.METHOD})
+    public @interface Test {
+
     }
 
     // ====================================== code loader ============================================
     private static final class CodeNodeLoader {
 
-
-        private Object[] getDexElementsFromClassLoader(BaseDexClassLoader loader) throws Exception {
-            Field pathListField = BaseDexClassLoader.class.getDeclaredField("pathList");
-            pathListField.setAccessible(true);
-            // This is a DexPathList, but that class is package private.
-            Object pathList = pathListField.get(loader);
-            Field dexElementsField = pathList.getClass().getDeclaredField("dexElements");
-            dexElementsField.setAccessible(true);
-            // The objects in this array are Elements, but that class is package private.
-            return (Object[]) dexElementsField.get(pathList);
-        }
-
         public void load(CodeNode rootNode, Context context) {
             String pkgName = context.getPackageName();
             try {
                 String apkDir = context.getPackageManager().getApplicationInfo(pkgName, 0).sourceDir;
-
-                Enumeration<URL> urlEnumeration = Thread.currentThread().getContextClassLoader().getResources("com/peterzhangrui");
-
-                PathClassLoader pathClassLoader = new PathClassLoader(apkDir, context.getClassLoader());
-                Enumeration<URL> enumeration = pathClassLoader.getResources("classpath*:com/peterzhangrui/demo/**");
-                Enumeration<URL> enumeration1 = pathClassLoader.getResources("demo");
-                Enumeration<URL> enumeration2 = mApplicationContext.getClass().getClassLoader().getResources("");
-
-                Object[] objects = getDexElementsFromClassLoader(pathClassLoader);
-
-                ApplicationInfo info = context.getApplicationInfo();
-                String dexPath=info.sourceDir;
-                String dexOutputDir=info.dataDir;
-                String libPath=info.nativeLibraryDir;
-                DexClassLoader dl= new DexClassLoader(dexPath, dexOutputDir,
-                        libPath, context.getClass().getClassLoader());
-                try {
-                    Enumeration<URL> gaga = dl.getResources("");
-
-                    Log.i("peter", gaga.toString());
-                    System.out.println(1);
-                } catch (IOException e1) {
-                    // TODO Auto-generated catch block
-                    e1.printStackTrace();
-                }
-
-                while(enumeration.hasMoreElements()) {
-                    URL url = enumeration.nextElement();
-                    Log.d("url", url.toString());
-                }
-
                 DexFile dexFile = new DexFile(apkDir);
                 Enumeration<String> apkClassNames = dexFile.entries();
                 while (apkClassNames.hasMoreElements()) {
@@ -201,11 +177,13 @@ public abstract class MyTester<T> {
 
         }
 
-        protected boolean isPlayClass(String className) {
+        private boolean isPlayClass(String className) {
             try {
                 Class<?> clazz = Class.forName(className);
-                if (!Modifier.isAbstract(clazz.getModifiers())) {
-                    return MyTester.class.isAssignableFrom(clazz);
+                for (Method method : clazz.getDeclaredMethods()) {
+                    if (method.isAnnotationPresent(Tester.Test.class)) {
+                        return true;
+                    }
                 }
             } catch (ClassNotFoundException e) {
                 e.printStackTrace();
@@ -269,9 +247,10 @@ public abstract class MyTester<T> {
     }
 
     // ====================================== code node ============================================
-    public static final class CodeNode implements Parcelable {
+    private static final class CodeNode implements Parcelable {
         public static final int DIR = 0;
         public static final int CLASS = 1;
+        public static final int METHOD = 2;
         public final int type;
         public final String name;
         public String className;
@@ -294,15 +273,15 @@ public abstract class MyTester<T> {
             mSubNodeList = in.createTypedArrayList(CodeNode.CREATOR);
         }
 
-        public static final Creator<CodeNode> CREATOR = new Creator<CodeNode>() {
+        public static final Creator<CodeNode> CREATOR = new Creator<Tester.CodeNode>() {
             @Override
-            public CodeNode createFromParcel(Parcel in) {
-                return new CodeNode(in);
+            public Tester.CodeNode createFromParcel(Parcel in) {
+                return new Tester.CodeNode(in);
             }
 
             @Override
-            public CodeNode[] newArray(int size) {
-                return new CodeNode[size];
+            public Tester.CodeNode[] newArray(int size) {
+                return new Tester.CodeNode[size];
             }
         };
 

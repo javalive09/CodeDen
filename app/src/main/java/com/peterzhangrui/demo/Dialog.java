@@ -3,8 +3,6 @@ package com.peterzhangrui.demo;
 import android.app.Activity;
 import android.app.AlertDialog;
 
-import com.peterzhangrui.demo.coder.Tester;
-
 public class Dialog {
 
     @Tester.Test
