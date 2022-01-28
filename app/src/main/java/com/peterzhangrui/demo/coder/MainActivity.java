@@ -18,7 +18,8 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
 //                APITester.init(MainActivity.this);
-                API.show(MainActivity.this);
+//                API.show(MainActivity.this);
+                Tester.show(MainActivity.this);
             }
         });
         setContentView(button);
