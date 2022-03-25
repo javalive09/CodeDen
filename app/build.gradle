@@ -3,6 +3,14 @@ plugins {
 }
 
 android {
+    signingConfigs {
+        debug {
+            storeFile file('/mnt/fdf865c1-b235-4281-84b3-b98516766bb2/code/CodeDen/key/platform.keystore')
+            keyAlias 'androiddebugkey'
+            storePassword 'android'
+            keyPassword 'android'
+        }
+    }
     compileSdk 29
 
     defaultConfig {

@@ -25,7 +25,11 @@ import java.util.Enumeration;
 import dalvik.system.DexFile;
 
 /**
- * class for api test
+ * Copyright (c) 2021 Beijing Didi Inc.
+ * <p>
+ * class for API test
+ * <p>
+ * Author: peterzhangrui
  */
 public abstract class Tester {
 
@@ -33,12 +37,22 @@ public abstract class Tester {
     private static WeakReference<Activity> mActivity;
     private static CodeNodeLoader mCodeLoader;
 
+    /**
+     * show tester view.
+     *
+     * @param activity enter activity
+     */
     public static void show(Activity activity) {
         mActivity = new WeakReference<>(activity);
         initData(activity);
         showView(activity);
     }
 
+    /**
+     * init tester data.
+     *
+     * @param activity activity
+     */
     private static void initData(Activity activity) {
         String pkgName = activity.getPackageName();
         CodeNode rootNode = new CodeNode(pkgName, CodeNode.DIR);
@@ -47,6 +61,11 @@ public abstract class Tester {
         mCodeLoader.load(rootNode, activity.getApplicationContext());
     }
 
+    /**
+     * real show tester view.
+     *
+     * @param activity activity
+     */
     private static void showView(Activity activity) {
         switch (currentNode.type) {
             case CodeNode.DIR:
@@ -77,6 +96,11 @@ public abstract class Tester {
         }
     }
 
+    /**
+     * installListView
+     *
+     * @param activity activity
+     */
     private static void installListView(Activity activity) {
         if (currentNode.mSubNodeList != null) {
             ArrayMap<CharSequence, CodeNode> map = new ArrayMap<>();
@@ -89,13 +113,14 @@ public abstract class Tester {
             }
             CharSequence[] items = new String[map.size()];
             map.keySet().toArray(items);
-            new AlertDialog.Builder(activity).setTitle(currentNode.name).setSingleChoiceItems(items, 0, new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    currentNode = map.get(items[which]);
-                    showView(activity);
-                }
-            }).setCancelable(false).setNegativeButton("back", new DialogInterface.OnClickListener() {
+            new AlertDialog.Builder(activity).setTitle(currentNode.name).setSingleChoiceItems(items, 0,
+                    new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            currentNode = map.get(items[which]);
+                            showView(activity);
+                        }
+                    }).setCancelable(false).setNegativeButton("back", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
                     Log.i("peter", "");
@@ -105,6 +130,12 @@ public abstract class Tester {
         }
     }
 
+    /**
+     * show log dialog
+     *
+     * @param tag tag
+     * @param msg message
+     */
     private static void showLogDialog(String tag, String msg) {
         if (mActivity != null && mActivity.get() != null) {
             new AlertDialog.Builder(mActivity.get()).setTitle("LogTag:" + tag).setMessage(msg).show();
@@ -131,7 +162,12 @@ public abstract class Tester {
         showLogDialog(tag, msg);
     }
 
-
+    /**
+     * invoke test method
+     *
+     * @param activity activity
+     * @throws Exception
+     */
     private static void invokeMethod(Activity activity) throws Exception {
         Object obj = activity.getClassLoader().loadClass(currentNode.className).newInstance();
         if (currentNode != null && currentNode.name != null) {
@@ -150,6 +186,10 @@ public abstract class Tester {
     }
 
     // ====================================== code loader ============================================
+
+    /**
+     * class for load all test method
+     */
     private static final class CodeNodeLoader {
 
         public void load(CodeNode rootNode, Context context) {
@@ -160,8 +200,20 @@ public abstract class Tester {
                 Enumeration<String> apkClassNames = dexFile.entries();
                 while (apkClassNames.hasMoreElements()) {
                     String className = apkClassNames.nextElement();
-                    if (className.startsWith(pkgName) && isPlayClass(className) & !className.contains("$") &
-                            !className.endsWith(".R") & !className.contains("BuildConfig")) {
+                    if(className.contains("$")) {
+                        continue;
+                    }
+                    if(className.contains("BuildConfig")) {
+                        continue;
+                    }
+                    if(className.contains(".R")) {
+                        continue;
+                    }
+                    if(!className.startsWith(pkgName)) {
+                        continue;
+                    }
+                    Log.d("load()", "pkgName className: " + className);
+                    if(isTestClass(className)) {
                         String fileName = className.substring(pkgName.length() + 1);
                         String[] fileNames = fileName.split("\\.");
                         loadCodeBagNode(className, fileNames, 0, rootNode);
@@ -177,11 +229,12 @@ public abstract class Tester {
 
         }
 
-        private boolean isPlayClass(String className) {
+        private boolean isTestClass(String className) {
             try {
+                Log.d("isTestClass()", "className: " + className);
                 Class<?> clazz = Class.forName(className);
                 for (Method method : clazz.getDeclaredMethods()) {
-                    if (method.isAnnotationPresent(Tester.Test.class)) {
+                    if (method.isAnnotationPresent(Test.class)) {
                         return true;
                     }
                 }
@@ -247,6 +300,10 @@ public abstract class Tester {
     }
 
     // ====================================== code node ============================================
+
+    /**
+     * class for test node info
+     */
     private static final class CodeNode implements Parcelable {
         public static final int DIR = 0;
         public static final int CLASS = 1;
@@ -273,15 +330,15 @@ public abstract class Tester {
             mSubNodeList = in.createTypedArrayList(CodeNode.CREATOR);
         }
 
-        public static final Creator<CodeNode> CREATOR = new Creator<Tester.CodeNode>() {
+        public static final Creator<CodeNode> CREATOR = new Creator<CodeNode>() {
             @Override
-            public Tester.CodeNode createFromParcel(Parcel in) {
-                return new Tester.CodeNode(in);
+            public CodeNode createFromParcel(Parcel in) {
+                return new CodeNode(in);
             }
 
             @Override
-            public Tester.CodeNode[] newArray(int size) {
-                return new Tester.CodeNode[size];
+            public CodeNode[] newArray(int size) {
+                return new CodeNode[size];
             }
         };
 
